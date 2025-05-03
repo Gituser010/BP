@@ -1,7 +1,7 @@
 import serial
 import re
 from collections import defaultdict
-
+import time
 # Configure serial port (adjust '/dev/ttyUSB0' and baud rate as needed)
 ser = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
 
@@ -15,14 +15,41 @@ packets = defaultdict(list)
 packet_type_map = {"1": "small", "2": "medium", "3": "big", "4": "sync"}
 print("Starting LoRa Packet Logger...")
 expected_packet_count = 10
+last_data_time = time.time()
 
 while True:
     try:
         line = ser.readline().decode('utf-8').strip()
 
         match = packet_regex.match(line)
+        if (time.time() - last_data_time) > 60:
+            for group_type in ['small', 'medium', 'big']:
+                group_packets = packets[group_type]
+                if group_packets:
+                    received_count = len(group_packets)
+                    pdr = (received_count / expected_packet_count) * 100
+
+                    # Assume params are same within group; take first packet's params
+                    params = group_packets[0]
+
+                    # Write to corresponding file
+                    filename = f"{group_type}_packets.txt"
+                    with open(filename, 'a') as file:
+                        file.write(f"Packet group ({group_type.upper()}):\n")
+                        file.write(f"Params: SF={params['SF']} CR={params['CR']} txPower={params['txPower']} BW={params['BW']}\n")
+                        file.write(f"Received packets: {received_count}/10 (PDR={pdr}%)\n")
+                            #file.write("Packet IDs: " + ', '.join([p['pkt_id'] for p in group_packets]) + "\n")
+                        file.write("Packets (ID: Timestamp):\n")
+                        for p in group_packets:
+                            file.write(f"{p['pkt_id']}: {p['Timestamp']}\n")
+                        file.write("-" * 50 + "\n")
+
+                # Reset groups
+                packets = defaultdict(list)
+
 
         if match:
+            last_data_time = time.time()
             pkt_id, pkt_type, sf, cr, tx_power, bw, rssi, snr, length, timestamp = match.groups()
 
             packet_info = {
